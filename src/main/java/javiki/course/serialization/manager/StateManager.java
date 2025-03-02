@@ -9,6 +9,6 @@ import java.util.Map;
 public interface StateManager {
     void saveGlobalState();
     void loadGlobalState();
-    void registerBroke(Statable<?> statable);
+    void register(Statable<?> statable);
     Map<StateType, List<Statable<?>>> download();
 }

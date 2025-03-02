@@ -27,9 +27,9 @@ public class StateType {
     }
 
     public static StateType fromFolderName(String folderName) {
-        for (StateType state : REGISTERED_STATES.values()) {
-            if (state.getReadableName().equalsIgnoreCase(folderName)) {
-                return state;
+        for (StateType stateType : REGISTERED_STATES.values()) {
+            if (stateType.getReadableName().equalsIgnoreCase(folderName)) {
+                return stateType;
             }
         }
         throw new IllegalArgumentException("Unknown state name: " + folderName);

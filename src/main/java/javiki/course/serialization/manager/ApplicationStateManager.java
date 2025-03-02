@@ -1,6 +1,5 @@
 package javiki.course.serialization.manager;
 
-import com.fasterxml.jackson.databind.JavaType;
 import javiki.course.serialization.Statable;
 import javiki.course.serialization.StateType;
 import javiki.course.serialization.serializer.StateSerializer;
@@ -21,6 +20,7 @@ public class ApplicationStateManager implements StateManager {
     private final String stateFolderPath;
     private final StateSerializer serializer;
     private final ApplicationStateHolder stateHolder;
+
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd")
             .withZone(ZoneId.of("UTC"));
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH-mm-ss")
@@ -33,7 +33,7 @@ public class ApplicationStateManager implements StateManager {
     }
 
     @Override
-    public void registerBroke(Statable<?> statable) {
+    public void register(Statable<?> statable) {
         stateHolder.register(statable);
     }
 
@@ -41,18 +41,24 @@ public class ApplicationStateManager implements StateManager {
         for (Map.Entry<StateType, List<Statable<?>>> entry : stateToSave.entrySet()) {
             StateType stateName = entry.getKey();
             List<Statable<?>> statables = entry.getValue();
+
             if (statables.isEmpty()) {
+                System.out.println("⚠️ Пропущено сохранение пустого состояния: " + stateName.getReadableName());
                 continue;
             }
+
             String dateFolder = DATE_FORMATTER.format(Instant.now());
             String timeStamp = TIME_FORMATTER.format(Instant.now());
 
             Path dirPath = Paths.get(stateFolderPath, stateName.getReadableName(), dateFolder);
             Path filePath = dirPath.resolve(timeStamp + serializer.getFileExtension());
+
             try {
                 Files.createDirectories(dirPath);
                 serializer.serializeAndSave(filePath, statables);
+                System.out.println("✅ Сохранено " + statables.size() + " объектов в " + filePath);
             } catch (IOException e) {
+                System.err.println("❌ Ошибка сохранения в " + filePath + ": " + e.getMessage());
                 e.printStackTrace();
             }
         }
@@ -60,30 +66,51 @@ public class ApplicationStateManager implements StateManager {
 
     public Map<StateType, List<Statable<?>>> download() {
         Map<StateType, List<Statable<?>>> loadedStates = new HashMap<>();
+
         try (Stream<Path> paths = Files.list(Paths.get(stateFolderPath))) {
             List<Path> stateDirectories = paths.filter(Files::isDirectory).collect(Collectors.toList());
+
             for (Path stateDir : stateDirectories) {
                 String folderName = stateDir.getFileName().toString();
                 StateType stateType;
+
                 try {
                     stateType = StateType.fromFolderName(folderName);
                 } catch (IllegalArgumentException e) {
+                    System.out.println("⚠️ Пропущена неизвестная директория: " + folderName);
                     continue;
                 }
+
                 Path latestFile = getLatestStateFile(stateDir);
-                if (latestFile != null) {
-                    JavaType stateJavaType = stateType.getJavaType();
-                    try {
-                        List<Statable<?>> stateObjects = serializer.downloadAndDeserialize(latestFile, stateType);
-                        loadedStates.put(stateType, stateObjects);
-                    } catch (IOException e) {
-                        e.printStackTrace();
+                if (latestFile == null || !Files.exists(latestFile)) {
+                    System.out.println("❌ Ошибка: Нет доступных файлов для загрузки из " + stateDir);
+                    continue;
+                }
+
+                System.out.println("📥 Загрузка состояния из файла: " + latestFile);
+
+                try {
+                    List<Statable<?>> stateObjects = serializer.downloadAndDeserialize(latestFile, stateType);
+                    if (stateObjects.isEmpty()) {
+                        System.out.println("⚠️ Внимание: Файл " + latestFile + " пуст или содержит некорректные данные.");
+                        continue;
                     }
+                    loadedStates.put(stateType, stateObjects);
+                    System.out.println("✅ Загружено " + stateObjects.size() + " объектов из " + latestFile);
+                } catch (IOException e) {
+                    System.err.println("❌ Ошибка при загрузке состояния из " + latestFile + ": " + e.getMessage());
+                    e.printStackTrace();
                 }
             }
         } catch (IOException e) {
+            System.err.println("❌ Ошибка при получении списка папок состояний: " + e.getMessage());
             e.printStackTrace();
         }
+
+        if (loadedStates.isEmpty()) {
+            System.out.println("⚠️ Внимание: Не удалось загрузить ни одного состояния!");
+        }
+
         return loadedStates;
     }
 
@@ -92,10 +119,12 @@ public class ApplicationStateManager implements StateManager {
             Optional<Path> latestDateDir = dateDirs
                     .filter(Files::isDirectory)
                     .max(Comparator.comparing(Path::getFileName));
+
             if (latestDateDir.isPresent()) {
                 try (Stream<Path> files = Files.list(latestDateDir.get())) {
                     return files
-                            .filter(Files::isRegularFile)
+                            .filter(Files::isRegularFile) // Фильтруем только файлы
+                            .filter(file -> file.toString().endsWith(serializer.getFileExtension())) // Проверяем расширение
                             .max(Comparator.comparing(Path::getFileName))
                             .orElse(null);
                 }
@@ -106,24 +135,33 @@ public class ApplicationStateManager implements StateManager {
 
     @Override
     public void loadGlobalState() {
+        if (!stateHolder.getStateList().isEmpty()) {
+            System.out.println("⚠️ Состояние уже загружено, пропускаем повторную загрузку.");
+            return;
+        }
+
         stateHolder.clear();
         Map<StateType, List<Statable<?>>> loadedStates = download();
         List<Statable<?>> allStates = new ArrayList<>();
+
         for (List<Statable<?>> statables : loadedStates.values()) {
             allStates.addAll(statables);
         }
+
         stateHolder.setStateList(allStates);
-        System.out.println(" Загружено " + allStates.size() + " объектов в ApplicationStateHolder");
+        System.out.println("✅ Загружено " + allStates.size() + " объектов в ApplicationStateHolder");
     }
 
     @Override
     public void saveGlobalState() {
         Map<StateType, List<Statable<?>>> stateToSave = new HashMap<>();
+
         for (Statable<?> statable : stateHolder.getStateList()) {
             StateType stateName = statable.stateName();
             stateToSave.computeIfAbsent(stateName, k -> new ArrayList<>()).add(statable);
         }
+
         save(stateToSave);
-        System.out.println(" Сохранено " + stateHolder.getStateList().size() + " объектов.");
+        System.out.println("✅ Сохранено " + stateHolder.getStateList().size() + " объектов.");
     }
 }
