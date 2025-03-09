@@ -114,25 +114,6 @@ public class ApplicationStateManager implements StateManager {
         return loadedStates;
     }
 
-    private Path getLatestStateFile(Path stateDir) throws IOException {
-        try (Stream<Path> dateDirs = Files.list(stateDir)) {
-            Optional<Path> latestDateDir = dateDirs
-                    .filter(Files::isDirectory)
-                    .max(Comparator.comparing(Path::getFileName));
-
-            if (latestDateDir.isPresent()) {
-                try (Stream<Path> files = Files.list(latestDateDir.get())) {
-                    return files
-                            .filter(Files::isRegularFile) // Фильтруем только файлы
-                            .filter(file -> file.toString().endsWith(serializer.getFileExtension())) // Проверяем расширение
-                            .max(Comparator.comparing(Path::getFileName))
-                            .orElse(null);
-                }
-            }
-        }
-        return null;
-    }
-
     @Override
     public void loadGlobalState() {
         if (!stateHolder.getStateList().isEmpty()) {
@@ -163,5 +144,62 @@ public class ApplicationStateManager implements StateManager {
 
         save(stateToSave);
         System.out.println("✅ Сохранено " + stateHolder.getStateList().size() + " объектов.");
+    }
+
+    /**
+     * Возвращает путь к последнему сохраненному файлу для указанного типа состояния.
+     */
+    public Path getLatestSavedFile(StateType stateType) {
+        return getLatestSavedFile(stateType, false);
+    }
+
+    public Path getLatestSavedFile(StateType stateType, boolean isCompressed) {
+        Path stateTypeDir = Paths.get(stateFolderPath, stateType.getReadableName());
+
+        // ✅ Проверяем, существует ли папка
+        if (!Files.exists(stateTypeDir) || !Files.isDirectory(stateTypeDir)) {
+            System.out.println("❌ Ошибка: Папка для состояния " + stateType.getReadableName() + " не найдена.");
+            return null;
+        }
+
+        try (Stream<Path> dateDirs = Files.list(stateTypeDir)) {
+            Optional<Path> latestDateDir = dateDirs
+                    .filter(Files::isDirectory)
+                    .max(Comparator.comparing(Path::getFileName));
+
+            if (latestDateDir.isPresent()) {
+                try (Stream<Path> files = Files.list(latestDateDir.get())) {
+                    return files
+                            .filter(Files::isRegularFile)
+                            .filter(file -> file.toString().endsWith(isCompressed ? ".compressed" : serializer.getFileExtension()))
+                            .max(Comparator.comparing(Path::getFileName))
+                            .orElse(null);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("❌ Ошибка при получении последнего сохраненного файла: " + e.getMessage());
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+
+    private Path getLatestStateFile(Path stateDir) throws IOException {
+        try (Stream<Path> dateDirs = Files.list(stateDir)) {
+            Optional<Path> latestDateDir = dateDirs
+                    .filter(Files::isDirectory)
+                    .max(Comparator.comparing(Path::getFileName));
+
+            if (latestDateDir.isPresent()) {
+                try (Stream<Path> files = Files.list(latestDateDir.get())) {
+                    return files
+                            .filter(Files::isRegularFile)
+                            .filter(file -> file.toString().endsWith(serializer.getFileExtension()))
+                            .max(Comparator.comparing(Path::getFileName))
+                            .orElse(null);
+                }
+            }
+        }
+        return null;
     }
 }

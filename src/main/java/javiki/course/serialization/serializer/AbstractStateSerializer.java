@@ -45,25 +45,16 @@ public abstract class AbstractStateSerializer implements StateSerializer {
     }
 
     public List<Statable<?>> downloadAndDeserialize(Path filePath, StateType stateName) throws IOException {
-//        JavaType stringType = objectMapper.constructType(String.class);
-//        JavaType listType = objectMapper.getTypeFactory()
-//                .constructCollectionType(List.class, QuadrangleParameters.class);
-//
-//        JavaType mapType = objectMapper.getTypeFactory()
-//                .constructMapType(Map.class, stringType, listType);
-//
-//        JavaType listOfMapsType = objectMapper.getTypeFactory()
-//                .constructCollectionType(List.class, mapType);
-
         JavaType listOfStateType = objectMapper.getTypeFactory()
                 .constructCollectionType(List.class, stateName.getJavaType());
 
-        // Теперь десериализуем список объектов
+        // Десериализуем список объектов
         List<Object> objectList = objectMapper.readValue(
                 Files.newBufferedReader(filePath), listOfStateType
         );
 
-        Function<Object, Statable<?>> stateMapper = StateManagerMapper.MAPPERS.get(stateName.getReadableName());
+        // ✅ Используем getMapper(), а не MAPPERS.get() напрямую
+        Function<Object, Statable<?>> stateMapper = StateManagerMapper.getMapper(stateName);
         if (stateMapper == null) {
             throw new IllegalArgumentException("Ошибка: Не найден маппер для " + stateName.getReadableName());
         }
